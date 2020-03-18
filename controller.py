@@ -146,7 +146,39 @@ class ShardHandler(object):
         """Loads the data from all shards, removes the extra 'database' file,
         and writes the new number of shards to disk.
         """
-        pass
+
+        self.mapping = self.load_map()
+        data = self.load_data_from_shards()
+        keys = [int(z) for z in self.get_shard_ids()]
+        replication_keys = self.get_replication_ids() or ['0-0']
+        replication_level = max([
+            int(z[z.index('-') + 1 : len(z)]) for z in replication_keys
+        ])
+        keys.sort()
+
+        if len(keys) == 1:
+            raise Exception('Cannot remove last shard')
+
+        new_shard_count = max(keys)
+
+        spliced_data = self._generate_sharded_data(new_shard_count, data)
+
+        os.remove(f"data/{keys[-1]}.txt")
+        print(self.mapping)
+        if f"{keys[-1]}" in self.mapping:
+            del self.mapping[f"{keys[-1]}"]
+
+        for level in range(0, replication_level):
+            os.remove(f"data/{keys[-1]}-{level + 1}.txt")
+            if f"{keys[-1]}-{level + 1}" in self.mapping:
+                del self.mapping[f"{keys[-1]}-{level + 1}"]
+        
+        for num, d in enumerate(spliced_data):
+            self._write_shard(num, d)
+
+        self.write_map()
+
+        self.sync_replication()
 
     def add_replication(self) -> None:
         """Add a level of replication so that each shard has a backup. Label
@@ -163,6 +195,15 @@ class ShardHandler(object):
         to detect how many levels there are and appropriately add the next
         level.
         """
+        self.mapping = self.load_map()
+        data = self.load_data_from_shards()
+        keys = [int(z) for z in self.get_shard_ids()]
+        replication_keys = self.get_replication_ids() or ['0-0']
+        replication_level = max([
+            int(z[z.index('-') + 1 : len(z)]) for z in replication_keys
+        ]) + 1
+        keys.sort()
+
         pass
 
     def remove_replication(self) -> None:
@@ -217,3 +258,5 @@ print(s.mapping.keys())
 s.add_shard()
 
 print(s.mapping.keys())
+
+s.remove_shard()
