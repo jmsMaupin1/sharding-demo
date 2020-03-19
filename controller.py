@@ -259,13 +259,50 @@ class ShardHandler(object):
                 return False
     
     def repair_primary_files(self):
-        pass
+        keys = [int(z) for z in self.get_shard_ids()]
+        replication_level = self.get_replication_level()
+        keys.sort()
+
+        for key in keys:
+            primary_file = f"data/{key}.txt"
+            if not os.path.exists(primary_file):
+                if replication_level > 0:
+                    for level in range(1, replication_level + 1):
+                        replication_file = f"data/{key}-{level}.txt"
+                        if os.path.exists(replication_file):
+                            copyfile(
+                                replication_file,
+                                primary_file
+                            )
+                else:
+                    raise Exception("Backups do not exist")
+    
+    def update_replications(self):
+        self.mapping = self.load_map()
+        keys = [int(z) for z in self.get_shard_ids()]
+        replication_level = self.get_replication_level()
+        keys.sort()
+
+        for key in keys:
+            primary_file = f"data/{key}.txt"
+            data = self.mapping.get(f"{key}")
+            for level in range(1, replication_level + 1):
+                replication_file = f"data/{key}-{level}.txt"
+                self.mapping[f"{key}-{level}"] = data
+                copyfile(
+                    primary_file,
+                    replication_file
+                )
 
     def sync_replication(self) -> None:
         """Verify that all replications are equal to their primaries and that
         any missing primaries are appropriately recreated from their
         replications."""
-        pass
+        if not self.check_primary_files():
+            self.repair_primary_files()
+
+        self.update_replications()
+        
 
     def get_shard_data(self, shardnum=None) -> [str, Dict]:
         """Return information about a shard from the mapfile."""
@@ -284,17 +321,3 @@ class ShardHandler(object):
 s = ShardHandler()
 
 s.build_shards(1, load_data_from_file())
-s.add_shard()
-s.add_replication()
-s.add_replication()
-s.add_replication()
-
-print(len(s.mapping.keys()))
-
-s.remove_replication()
-
-print(len(s.mapping.keys()))
-
-s.remove_replication()
-
-print(len(s.mapping.keys()))
