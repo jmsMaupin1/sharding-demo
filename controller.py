@@ -24,6 +24,12 @@ class ShardHandler(object):
 
     mapfile = "mapping.json"
 
+    def get_replication_level(self) -> int:
+        replication_keys = self.get_replication_ids() or ['0-0']
+        return max([
+            int(z[z.index('-') + 1 : len(z)]) for z in replication_keys
+        ])
+
     def write_map(self) -> None:
         """Write the current 'database' mapping to file."""
         with open(self.mapfile, 'w') as m:
@@ -146,14 +152,10 @@ class ShardHandler(object):
         """Loads the data from all shards, removes the extra 'database' file,
         and writes the new number of shards to disk.
         """
-
         self.mapping = self.load_map()
         data = self.load_data_from_shards()
         keys = [int(z) for z in self.get_shard_ids()]
-        replication_keys = self.get_replication_ids() or ['0-0']
-        replication_level = max([
-            int(z[z.index('-') + 1 : len(z)]) for z in replication_keys
-        ])
+        replication_level = self.get_replication_level()
         keys.sort()
 
         if len(keys) == 1:
@@ -198,13 +200,19 @@ class ShardHandler(object):
         self.mapping = self.load_map()
         data = self.load_data_from_shards()
         keys = [int(z) for z in self.get_shard_ids()]
-        replication_keys = self.get_replication_ids() or ['0-0']
-        replication_level = max([
-            int(z[z.index('-') + 1 : len(z)]) for z in replication_keys
-        ]) + 1
+        replication_level = self.get_replication_level() + 1
         keys.sort()
-
-        pass
+        
+        for key in keys:
+            data = self.mapping.get(key)
+            self._write_shard_mapping(f"{key}-{replication_level}", data, True)
+            copyfile(
+                f"data/{key}.txt",
+                f"data/{key}-{replication_level}.txt"
+            )
+        
+        self.write_map()
+        self.sync_replication()
 
     def remove_replication(self) -> None:
         """Remove the highest replication level.
@@ -227,6 +235,30 @@ class ShardHandler(object):
         2.txt (shard 2, primary)
         etc...
         """
+        self.mapping = self.load_map()
+        keys = [int(z) for z in self.get_shard_ids()]
+        replication_level = self.get_replication_level()
+        keys.sort()
+        
+        for key in keys:
+            replication_file = f"{key}-{replication_level}"
+            if replication_file in self.mapping:
+                del self.mapping[replication_file]
+            if os.path.exists(f"data/{replication_file}.txt"):
+                os.remove(f"data/{replication_file}.txt")
+        
+        self.write_map()
+        self.sync_replication()
+
+    def check_primary_files(self):
+        keys = [int(z) for z in self.get_shard_ids()]
+        keys.sort()
+
+        for key in keys:
+            if not os.path.exists(f"data/{key}.txt"):
+                return False
+    
+    def repair_primary_files(self):
         pass
 
     def sync_replication(self) -> None:
@@ -251,12 +283,18 @@ class ShardHandler(object):
 
 s = ShardHandler()
 
-s.build_shards(5, load_data_from_file())
-
-print(s.mapping.keys())
-
+s.build_shards(1, load_data_from_file())
 s.add_shard()
+s.add_replication()
+s.add_replication()
+s.add_replication()
 
-print(s.mapping.keys())
+print(len(s.mapping.keys()))
 
-s.remove_shard()
+s.remove_replication()
+
+print(len(s.mapping.keys()))
+
+s.remove_replication()
+
+print(len(s.mapping.keys()))
